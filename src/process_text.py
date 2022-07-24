@@ -1,47 +1,50 @@
-import os
 import pandas as pd
 import numpy as np
-import sentencepiece
-import transformers
-from transformers import T5Tokenizer, TFT5ForConditionalGeneration
-import tensorflow as tf
+from transformers import BertTokenizer, BertForMaskedLM
+import torch
 import random
-import time
+import string
+import nltk
+nltk.download('stopwords')
 
 class Summarizer:
-	def __init__(self, model, file):
-		with tf.device('/cpu:0'):
-			self.model = TFT5ForConditionalGeneration.from_pretrained("google/t5-v1_1-base")
-			self.tokenizer = T5Tokenizer.from_pretrained("google/t5-v1_1-base")
-		self.dataset = pd.read_csv(file, index_col=0)[:5]
+	def __init__(self, file, fluff, substance, trunc_at=480, masks=100):
+		# with tf.device('/cpu:0'):
+
+		# BERT with language modeling head (pytorch)
+		self.model = BertForMaskedLM.from_pretrained('bert-base-uncased')
+		self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+		self.dataset = pd.read_csv(file, index_col=0)[:100]
 		self.dataset['Description Length'] = self.dataset['Description'].apply(self.num_words)
+		self.stopwords = set(nltk.corpus.stopwords.words('english'))
+		self.mask = np.zeros((trunc_at, masks))
+		self.trunc_at = trunc_at
 
-		try:
+		print(self.mask)
 
-			self.fluff_indicators = set()
-			with open('src/fluff_keywords.txt', 'r') as f:
-				for l in f:
-					self.fluff_indicators.add(l.strip())
+		# self.fluff_indicators = set()
+		# with open(fluff, 'r') as f:
+		# 	for l in f:
+		# 		self.fluff_indicators.add(l.strip())
 
-			self.substance_indicators = set()
-			with open('src/substance_keywords.txt', 'r') as f:
-				for l in f:
-					self.substance_indicators.add(l.strip())
+		# self.substance_indicators = set()
+		# with open(substance, 'r') as f:
+		# 	for l in f:
+		# 		self.substance_indicators.add(l.strip())
 
-		except FileNotFoundError as e:
-			print(e)
-			print('Your current working directory is:', os.getcwd())
-			print('It should instead be the top level folder in the project.')
+		# self.clean_record = {}
+		# self.dataset['Cleaned Description'] = self.dataset.apply(self.clean, axis=1).values
+		# self.dataset['Cleaned Description Length'] = self.dataset['Cleaned Description'].apply(self.num_words).values
+		# self.dataset['Reduction'] = self.dataset[[
+		# 	'Description Length', 
+		# 	'Cleaned Description Length'
+		# ]].apply(lambda x: (1 - (x[1] / x[0])) * 100, axis=1).values
 
-		self.clean_record = {}
-		self.dataset['Cleaned Description'] = self.dataset.apply(self.clean, axis=1)
-		self.dataset['Cleaned Description Length'] = self.dataset['Cleaned Description'].apply(self.num_words)
-		self.dataset['Reduction'] = self.dataset[[
-			'Description Length', 
-			'Cleaned Description Length'
-		]].apply(lambda x: (1 - (x[1] / x[0])) * 100, axis=1)
+		# self.dataset = self.dataset.loc[self.dataset['Cleaned Description Length'] > 25]
 
-		self.dataset['Summary'] = self.dataset['Cleaned Description'].apply(self.summarize)
+		# self.dataset['Mask Filter'] = self.dataset.apply(self.create_mask, axis=1).values
+		# self.dataset['Masked Description'] = self.dataset.apply(self.insert_mask, axis=1).values
+		# self.dataset['Filled Description'] = self.dataset.apply(self.fill_mask, axis=1).values
 
 	@staticmethod
 	def num_words(article):
@@ -79,8 +82,19 @@ class Summarizer:
 
 		# Abbereviations that are actually relevant
 		article = article.replace('b.s.', 'bachelors of science')
+		article = article.replace('b.a.', 'bachelors of art')
 		article = article.replace('m.s.', 'masters of science')
-		article = article.replace('u.s.', 'united states')
+		article = article.replace('m.a.', 'masters of art')
+		article = article.replace(' 1 ', ' one ')
+		article = article.replace(' 2 ', ' two ')
+		article = article.replace(' 3 ', ' three ')
+		article = article.replace(' 4 ', ' four ')
+		article = article.replace(' 5 ', ' five ')
+		article = article.replace(' 6 ', ' six ')
+		article = article.replace(' 7 ', ' seven ')
+		article = article.replace(' 8 ', ' eight ')
+		article = article.replace(' 9 ', ' nine ')
+		article = article.replace(' 0 ', ' zero ')
 
 		# Remove fluff sentences via keywords
 		substance, fluff = [], []
@@ -100,75 +114,58 @@ class Summarizer:
 
 		self.clean_record[item.name] = (substance, fluff)
 
+		# Remove punctuation 
+		article = article.translate(str.maketrans('', '', string.punctuation))
+
+		# Remove stopwords
+		article = ' '.join([w for w in nltk.tokenize.word_tokenize(article) if w not in self.stopwords])
+
+		# Trim, saving 32 tokens for words split into multiple token parts e.g. "eating" -> "eat", "**ing"
+		article = ' '.join(article.split()[:480])
+
 		return article
 
-	def summarize(self, article):
+	@staticmethod
+	def create_mask(item):
 
-		print('#' * 100)
-		print(article)
-		print()
-		tokenized_article = self.tokenizer(
-			'summarize: ' + article,
-			max_length=1024,
-			truncation=True,
-			return_tensors='tf',
-		)
-		summary = self.model.generate(
-			tokenized_article['input_ids'],
-			num_beams=4,
-			no_repeat_ngram_size=2,
-			min_length=10,
-			max_length=300,
-			early_stopping=True,
-		)
+		# 5% contamination
+		article = item[4].split()
+		num_masks = max(1, int(len(article) * 0.05))
+		masking = [0 for _ in article]
+		for m in random.choices(range(len(masking)), k=num_masks):
+			masking[m] = 1
+		return masking
 
-		response = self.tokenizer.decode(summary[0], skip_special_tokens=True)
+	@staticmethod
+	def insert_mask(item):
+		article = item[4].split()
+		masking = item[7]
+		return ' '.join(['[MASK]' if masking[i] else w for i, w in enumerate(article)])
 
-		print(response)
+	def fill_mask(self, item):
+		article = item[8]
 
-		return response
+		tokenized = self.tokenizer(article, return_tensors='pt')
+		tokenized_length = tokenized.input_ids.size()[1]
+		predictions = self.model(**tokenized)[0]
+
+		predicted_index = [torch.argmax(predictions[0, i]).item() for i in range(0, tokenized_length)]
+		predicted_token = [self.tokenizer.convert_ids_to_tokens([predicted_index[x]])[0] for x in range(1, tokenized_length)]
+		
+		filled_article = self.tokenizer.convert_tokens_to_string(predicted_token)
+
+		return filled_article
 
 if __name__ == "__main__":
 
 	s = Summarizer(
-		model='google/t5-v1_1-base',
-		file='.\\dataset\\Job-Recommendation-Engine-master\\Results\\JobsDataset.csv',
+		file='./dataset/Job-Recommendation-Engine-master/Results/JobsDataset.csv',
+		fluff='src/fluff_keywords.txt',
+		substance='src/substance_keywords.txt',
 	)
 
-	# Looking at the longest description
-
-	longest = np.argmax(s.dataset['Cleaned Description Length'])
-	print('Average Reduction: {0:.2f}%'.format(s.dataset['Reduction'].mean()))
-	print('#' * 50, 'Longest Description', '#' * 50)
-	print(
-		'Longest Description:', s.dataset.iat[longest, 5], 
-		'after {0:.2f}% reduction'.format(s.dataset.iat[longest, 6]), 
-		'from', s.dataset.iat[longest, 3]
-	)
-	print('Substance', '-' * 100)
-	for sentence in s.clean_record[longest + 1][0]:
-		print(sentence)
-
-	print('Fluff', '-' * 100)
-	for sentence in s.clean_record[longest + 1][1]:
-		print(sentence)
-
-	# Looking at shortest descriptions
-
-	for row in s.dataset.loc[s.dataset['Cleaned Description Length'].between(1, 5)].itertuples():
-		print('#' * 50, 'Short Description', '#' * 50)
-		print()
-		print('Original:')
-		print(row[3])
-		print()
-		print(row[6], 'after {0:.2f}% reduction'.format(row[7]), 'from', row[4])
-		print('Substance', '-' * 100)
-		for sentence in s.clean_record[row[0]][0]:
-			print(sentence)
-	
-		print('Fluff', '-' * 100)
-		for sentence in s.clean_record[row[0]][1]:
-			print(sentence)
-
-	# for row in s.dataset[['Cleaned Description', 'Summary']]:
-	# 	print(row)
+	# r = random.randrange(len(s.dataset))
+	# for i, c in enumerate(s.dataset.columns):
+	# 	print(c)
+	# 	print(s.dataset.iloc[r, i])
+	# 	print()
