@@ -93,7 +93,7 @@ mlm_lr_ratio = args.mlm_lr_ratio
 contamination = args.contamination
 dump_histogram = args.dump_histogram
 
-masks_ = pkl.load(open('./src/date/simpletransformers/pseudo_labels128_p50.pkl', 'rb'))
+masks_ = pkl.load(open('./src/date/experiments/pseudo_labels128_p50.pkl', 'rb'))
 
 print('Using subset ', subset)
 
@@ -205,11 +205,11 @@ def run_exps():
         date_time = now.strftime("%m%d%Y_%H%M%S")
 
         if preprocessed:
-            train_file = f"./src/date/datasets/ag_od/train/{subset_r}.txt"
-            test_file = f"./src/date/datasets/ag_od/test/{subset_r}.txt"
-            outlier_file = f"./src/date/datasets/ag_od/test/{subset_r}-outliers.txt"
+            train_file = f"./ag_od/train/{subset_r}.txt"
+            test_file = f"./ag_od/test/{subset_r}.txt"
+            outlier_file = f"./ag_od/test/{subset_r}-outliers.txt"
         if contamination != 0:
-            train_file = f"./src/date/datasets/ag_od/train/{subset_r}-contaminated/{subset_r}_c{int(contamination)}.txt"
+            train_file = f"./ag_od/train/{subset_r}-contaminated/{subset_r}_c{int(contamination)}.txt"
 
         model = LanguageModelingModel("electra",
                                       None,

@@ -138,7 +138,6 @@ src/masks.pickle
 
 
 # DATE
-
 mask.pkl
 test.csv
 train.csv
