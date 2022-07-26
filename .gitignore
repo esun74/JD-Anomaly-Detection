@@ -135,3 +135,15 @@ dataset/checkpoint.pickle
 dataset/stopwords
 src/generated.pickle
 src/masks.pickle
+
+
+# DATE
+
+mask.pkl
+test.csv
+train.csv
+train.txt
+20ng_od
+ag_od
+cache_dir/
+

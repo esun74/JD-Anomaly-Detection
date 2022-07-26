@@ -18,7 +18,7 @@ def fill_mask(data, model, tokenizer):
 			
 			return tokenizer.convert_tokens_to_string(predicted_token)
 
-		output['X2'] = output['X'].apply(guess_sentence)
+		output['X'] = output['X'].apply(guess_sentence)
 
 		print(output)
 
